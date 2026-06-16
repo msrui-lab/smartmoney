@@ -1,0 +1,40 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $HOME/android-sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-*.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" --sdk_root=$HOME/android-sdk
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Debug APK
+        run: gradle assembleDebug
+        env:
+          ANDROID_HOME: ${{ github.workspace }}/../android-sdk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 智能记账-v${{ github.run_number }}.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
