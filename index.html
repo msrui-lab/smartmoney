@@ -974,6 +974,11 @@ function clearAllData(){
 // ============================
 // Called by HarmonyOS WebView when ICBC (95588) SMS is received
 let nativeSmsEnabled=false;
+// Called by Android/HarmonyOS native layer when SMS permission result is known
+window.onSmsPermissionResult=function(granted){
+  nativeSmsEnabled=granted;
+  if(granted) toast('📱 短信自动记账已启用');
+};
 window.onNativeSmsReceived=function(smsText){
   nativeSmsEnabled=true;
   if(!smsText||typeof smsText!=='string') return;

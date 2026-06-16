@@ -1,6 +1,9 @@
 package com.smartmoney.app;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -13,7 +16,12 @@ import android.view.WindowManager;
 import android.graphics.Color;
 
 public class MainActivity extends Activity {
-    private WebView webView;
+    private static WebView webView;
+    private static final int SMS_PERMISSION_CODE = 100;
+
+    public static WebView getWebView() {
+        return webView;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,11 +51,44 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient());
 
         webView.loadUrl("https://msrui-lab.github.io/smartmoney/");
+
+        // Request SMS permission on first launch
+        requestSmsPermission();
+    }
+
+    private void requestSmsPermission() {
+        if (Build.VERSION.SDK_INT >= 23) {
+            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(
+                    new String[]{Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS},
+                    SMS_PERMISSION_CODE
+                );
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == SMS_PERMISSION_CODE) {
+            boolean granted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) granted = false;
+            }
+            // Notify WebView of permission status
+            if (webView != null) {
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + granted + ");}",
+                    null
+                ));
+            }
+        }
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
             webView.goBack();
             return true;
         }
