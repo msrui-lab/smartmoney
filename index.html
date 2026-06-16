@@ -213,6 +213,10 @@ const DEFAULT_CATEGORIES = [
   {id:'cat_food',name:'餐饮',icon:'🍽️',type:'expense',color:'#e8553d'},
   {id:'cat_transport',name:'交通',icon:'🚌',type:'expense',color:'#f59e0b'},
   {id:'cat_shopping',name:'购物',icon:'🛒',type:'expense',color:'#ec4899'},
+  {id:'cat_online',name:'网购',icon:'📦',type:'expense',color:'#f97316'},
+  {id:'cat_gasoline',name:'加油',icon:'⛽',type:'expense',color:'#eab308'},
+  {id:'cat_telecom',name:'通信',icon:'📡',type:'expense',color:'#06b6d4'},
+  {id:'cat_mortgage',name:'房贷',icon:'🏡',type:'expense',color:'#dc2626'},
   {id:'cat_housing',name:'住房',icon:'🏠',type:'expense',color:'#8b5cf6'},
   {id:'cat_entertain',name:'娱乐',icon:'🎮',type:'expense',color:'#6366f1'},
   {id:'cat_medical',name:'医疗',icon:'💊',type:'expense',color:'#06b6d4'},
@@ -225,7 +229,7 @@ const DEFAULT_CATEGORIES = [
   {id:'cat_other_inc',name:'其他',icon:'➕',type:'income',color:'#6366f1'},
 ];
 const DEFAULT_ACCOUNTS = [
-  {id:'acc_icbc',name:'工商银行',type:'储蓄卡',cardLast4:'',bankName:'中国工商银行',color:'#e8553d'},
+  {id:'acc_icbc',name:'工商银行',type:'储蓄卡',cardLast4:'8945',bankName:'中国工商银行',color:'#e8553d'},
   {id:'acc_wechat',name:'微信零钱',type:'微信',cardLast4:'',bankName:'',color:'#1aae5b'},
   {id:'acc_alipay',name:'支付宝',type:'支付宝',cardLast4:'',bankName:'',color:'#1677ff'},
   {id:'acc_cash',name:'现金',type:'现金',cardLast4:'',bankName:'',color:'#f59e0b'},
@@ -336,20 +340,36 @@ function parseICBCSms(text){
 }
 
 function classifyAndReturn(result, text){
-  // Auto categorize based on keywords
-  const kw=text.toLowerCase();
-  if(/美团|饿了么|外卖|餐厅|饭店|小吃|奶茶|咖啡|肯德基|麦当劳|星巴克|火锅|烧烤|面馆/.test(text)) result.catId='cat_food';
-  else if(/滴滴|地铁|公交|加油|停车|高铁|机票|火车|高速/.test(text)) result.catId='cat_transport';
-  else if(/超市|商场|淘宝|京东|拼多多|便利店|沃尔玛|永辉|代购/.test(text)) result.catId='cat_shopping';
-  else if(/房租|物业|水电|燃气|暖气|中介/.test(text)) result.catId='cat_housing';
-  else if(/电影|游戏|KTV|旅游|酒店|景点|演出|票/.test(text)) result.catId='cat_entertain';
-  else if(/医院|药店|诊所|体检|挂号/.test(text)) result.catId='cat_medical';
-  else if(/书|课程|培训|学费|考证/.test(text)) result.catId='cat_edu';
-  else if(/工资|奖金|津贴|补贴/.test(text)) result.catId='cat_salary';
-  else if(/退款|退货|退还/.test(text)) result.catId='cat_refund';
-  else if(/理财|基金|股票|收益|分红/.test(text)) result.catId='cat_invest';
-  else if(result.type==='expense') result.catId='cat_other_exp';
-  else result.catId='cat_other_inc';
+  // Only process card 8945
+  if(result.cardLast4&&result.cardLast4!=='8945') return {error:'仅支持尾号8945的银行卡，当前卡尾号'+result.cardLast4};
+
+  // Suggested account: default to ICBC, override based on keywords
+  result.suggestedAccountId='acc_icbc';
+
+  // Keyword classification (order matters — more specific rules first)
+  if(/贷款本息|房贷|住房贷款|按揭/.test(text)){
+    result.catId='cat_mortgage';result.suggestedAccountId='acc_icbc';
+  }else if(/石油|石化|中石油|中石化|加油站/.test(text)){
+    result.catId='cat_gasoline';result.suggestedAccountId='acc_icbc';
+  }else if(/抖音|拼多多|京东|淘宝|阿里巴巴|美团/.test(text)){
+    result.catId='cat_online';result.suggestedAccountId='acc_icbc';
+  }else if(/天翼|电信|中国电信/.test(text)){
+    result.catId='cat_telecom';result.suggestedAccountId='acc_icbc';
+  }else if(/财付通/.test(text)){
+    result.catId='cat_other_exp';result.suggestedAccountId='acc_wechat';
+  }else if(/支付宝/.test(text)){
+    result.catId='cat_other_exp';result.suggestedAccountId='acc_alipay';
+  }else if(/工商银行.*收入|工行.*工资|工资.*工行|工资收入/.test(text)){
+    result.type='income';result.catId='cat_salary';result.suggestedAccountId='acc_icbc';
+  }else if(/工资|奖金|津贴|补贴/.test(text)){
+    result.type='income';result.catId='cat_salary';
+  }else if(/退款|退货|退还/.test(text)){
+    result.type='income';result.catId='cat_refund';
+  }else if(result.type==='expense'){
+    result.catId='cat_other_exp';
+  }else{
+    result.catId='cat_other_inc';
+  }
 
   // Build date string
   if(result.month&&result.day){
@@ -587,7 +607,7 @@ function parseAndPreview(){
     return;
   }
   const cat=DATA.categories.find(c=>c.id===result.catId);
-  const acc=DATA.accounts.find(a=>a.cardLast4===result.cardLast4)||DATA.accounts[0];
+  const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
   el.innerHTML=`✅ 解析成功<br>📌 类型：${result.type==='expense'?'支出':'收入'} | 金额：<strong>${fmtMoney(result.amount)}元</strong><br>📅 日期：${result.date} | 卡尾号：${result.cardLast4||'未识别'}<br>🏷️ 自动分类：${cat?cat.icon+' '+cat.name:'其他'} | 账户：${acc?acc.name:'默认'}<br>${result.merchant?'🏪 商户：'+result.merchant+'<br>':''}💰 余额：${result.balance?fmtMoney(result.balance)+'元':'未识别'}`;
   btn.style.display='block';
   pendingSmsResult=result;
@@ -597,7 +617,7 @@ function confirmSmsRecord(){
   if(!pendingSmsResult) return;
   const r=pendingSmsResult;
   const catId=r.catId||(r.type==='expense'?'cat_other_exp':'cat_other_inc');
-  const acc=DATA.accounts.find(a=>a.cardLast4===r.cardLast4)||DATA.accounts[0];
+  const acc=DATA.accounts.find(a=>a.id===(r.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
   const txn={
     id:genId('txn_'),type:r.type,amount:r.amount,categoryId:catId,accountId:acc.id,
     date:r.date,note:(r.merchant||'')+(r.cardLast4?' [尾号'+r.cardLast4+']':''),smsId:genId('sms_'),createdAt:new Date().toISOString()
@@ -985,7 +1005,7 @@ window.onNativeSmsReceived=function(smsText){
   const result=parseICBCSms(smsText);
   if(result&&!result.error&&!isSmsDuplicate(smsText,result.date)){
     const catId=result.catId||(result.type==='expense'?'cat_other_exp':'cat_other_inc');
-    const acc=DATA.accounts.find(a=>a.cardLast4===result.cardLast4)||DATA.accounts[0];
+    const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
     const txn={
       id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
       accountId:acc.id,date:result.date,
@@ -999,6 +1019,35 @@ window.onNativeSmsReceived=function(smsText){
     // Show in-app toast if available, fallback to console
     try{ toast('📱 自动记账: '+(result.type==='expense'?'支出':'收入')+fmtMoney(result.amount)+'元'); }catch(e){}
     // Update current page if visible
+    if(currentTab==='home') renderHome();
+    if(currentTab==='bills') refreshBills();
+  }
+};
+
+// Called by Android native layer to import historical SMS on first install
+window.onNativeHistoricalSms=function(smsList){
+  if(!smsList||!Array.isArray(smsList)) return;
+  let imported=0,skipped=0;
+  smsList.forEach(smsText=>{
+    const result=parseICBCSms(smsText);
+    if(result&&!result.error&&!isSmsDuplicate(smsText,result.date)){
+      const catId=result.catId||(result.type==='expense'?'cat_other_exp':'cat_other_inc');
+      const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
+      const txn={
+        id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
+        accountId:acc.id,date:result.date,
+        note:(result.merchant||'')+(result.cardLast4?' [尾号'+result.cardLast4+']':''),
+        smsId:genId('sms_'),createdAt:new Date().toISOString()
+      };
+      DATA.transactions.push(txn);
+      updateAccountBalance(acc.id,result.type,result.amount);
+      addSmsRecord(smsText,txn.id);
+      imported++;
+    }else{ skipped++; }
+  });
+  if(imported>0){
+    saveData();
+    toast('📥 已导入'+imported+'条历史短信记录'+(skipped>0?'，跳过'+skipped+'条':''));
     if(currentTab==='home') renderHome();
     if(currentTab==='bills') refreshBills();
   }
