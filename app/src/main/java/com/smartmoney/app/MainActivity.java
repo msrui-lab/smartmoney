@@ -72,14 +72,14 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == SMS_PERMISSION_CODE) {
-            boolean granted = true;
+            boolean permGranted = true;
             for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) granted = false;
+                if (result != PackageManager.PERMISSION_GRANTED) permGranted = false;
             }
-            // Notify WebView of permission status
+            final boolean finalGranted = permGranted;
             if (webView != null) {
                 webView.post(() -> webView.evaluateJavascript(
-                    "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + granted + ");}",
+                    "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + finalGranted + ");}",
                     null
                 ));
             }
