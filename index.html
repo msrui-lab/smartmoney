@@ -303,101 +303,147 @@ function getWeekExpenses(){
 }
 
 // ============================
-// ICBC SMS PARSER
+// ICBC SMS PARSER (v3: strict validation, proper merchant extraction)
 // ============================
 function parseICBCSms(text){
   if(!text||!text.trim()) return null;
   text=text.trim();
-  // Must be from ICBC
-  const isICBC = /95588|工商银行|工银|ICBC/i.test(text);
-  const hasAmount = /[\d,]+\.?\d*\s*元/.test(text);
-  if(!hasAmount) return {error:'未检测到金额信息，请确认短信内容'};
 
-  let result = {cardLast4:'',month:'',day:'',time:'',type:'expense',amount:0,balance:0,merchant:'',raw:text,isICBC};
-
-  // Pattern 1: 尾号XXXX卡X月X日XX:XX{desc}支出{amount}元，余额{balance}元【merchant】
-  let m = text.match(/尾号(\d{4})卡(\d{1,2})月(\d{1,2})日(\d{2}:\d{2})(.+?)(支出|取现|消费|转账支出|汇出).*?([\d,]+\.?\d*)元.*?余额.*?([\d,]+\.?\d*)元(?:[【\[](.+?)[】\]])?/);
-  if(m){
-    result.cardLast4=m[1];result.month=m[2];result.day=m[3];result.time=m[4];result.type='expense';
-    result.amount=parseFloat(m[7].replace(/,/g,''));result.balance=parseFloat(m[8].replace(/,/g,''));
-    result.merchant=(m[9]||'').trim();
-    return classifyAndReturn(result, text);
+  // Strict validation: must have all key ICBC transaction markers
+  const hasCard=/尾号\d{4}卡/.test(text);
+  const hasDate=/\d{1,2}月\d{1,2}日/.test(text);
+  const hasAmount=/[\d,]+\.?\d*\s*元/.test(text);
+  const hasBalance=/余额/.test(text);
+  if(!hasCard||!hasAmount||!hasBalance){
+    return {error:'非交易提醒短信，已忽略'};
   }
 
-  // Pattern 2: 尾号XXXX卡X月X日XX:XX{desc}收入{amount}元，余额{balance}元【merchant】
-  m = text.match(/尾号(\d{4})卡(\d{1,2})月(\d{1,2})日(\d{2}:\d{2})(.+?)(收入|退款|退税|转账收入|工资).*?([\d,]+\.?\d*)元.*?余额.*?([\d,]+\.?\d*)元(?:[【\[](.+?)[】\]])?/);
-  if(m){
-    result.cardLast4=m[1];result.month=m[2];result.day=m[3];result.time=m[4];result.type='income';
-    result.amount=parseFloat(m[7].replace(/,/g,''));result.balance=parseFloat(m[8].replace(/,/g,''));
-    result.merchant=(m[9]||'').trim();
-    return classifyAndReturn(result, text);
+  let result={cardLast4:'',month:'',day:'',time:'',type:'expense',amount:0,balance:0,merchant:'',raw:text,descStr:''};
+
+  // Unified pattern: 尾号XXXX卡M月D日HH:MM{action}({desc}){amount}元，余额{balance}元[【sender】]
+  // {action}: 支出/收入/转账支出/工资收入 etc.
+  // {desc}: 消费支付宝-商户名… / 微信充值 / (content) etc.
+  let m=text.match(/尾号(\d{4})卡(\d{1,2})月(\d{1,2})日(\d{2}:\d{2})\s*(.+)元[，,]?\s*余额\s*([\d,]+\.?\d*)\s*元/);
+  if(!m){ return {error:'无法识别短信格式'}; }
+
+  result.cardLast4=m[1];result.month=m[2];result.day=m[3];result.time=m[4];
+  result.balance=parseFloat(m[6].replace(/,/g,''));
+
+  let mid=m[5]; // Everything between time and "元，余额..."
+  // Determine transaction type
+  if(/收入|退款|退税|工资|转入/.test(mid)){
+    result.type='income';
+  }else{
+    result.type='expense';
   }
 
-  // Pattern 3: Generic amount match (e.g. "支出50.00元")
-  m = text.match(/(支出|取现|消费|扣款|付款|转账).*?([\d,]+\.?\d*)\s*元/);
-  if(m){ result.type='expense';result.amount=parseFloat(m[2].replace(/,/g,''));
-    const bm=text.match(/余额.*?([\d,]+\.?\d*)\s*元/);if(bm)result.balance=parseFloat(bm[1].replace(/,/g,''));
-    const cm=text.match(/尾号(\d{4})/);if(cm)result.cardLast4=cm[1];
-    const dm=text.match(/(\d{1,2})月(\d{1,2})日/);if(dm){result.month=dm[1];result.day=dm[2];}
-    const mm=text.match(/[【\[](.+?)[】\]]/);if(mm)result.merchant=mm[1].trim();
-    return classifyAndReturn(result, text);
+  // Extract amount: last number in mid (元 already consumed by main regex)
+  let am=mid.match(/([\d,]+\.?\d*)\s*$/);
+  if(am) result.amount=parseFloat(am[1].replace(/,/g,''));
+
+  // Extract description from (content) or after 支出/收入
+  let desc='';
+  let descM=mid.match(/[（(]([^)）]+)[)）]/);
+  if(descM){
+    desc=descM[1].trim();
+  }else{
+    // Try to extract text between 支出/收入 and amount
+    let dm2=mid.match(/(?:支出|收入|转账支出|快捷支付)\s*(.+?)\s*[\d,]+\.?\d*/);
+    if(dm2) desc=dm2[1].trim();
   }
-  m = text.match(/(收入|退款|退税|转入|到账|工资).*?([\d,]+\.?\d*)\s*元/);
-  if(m){ result.type='income';result.amount=parseFloat(m[2].replace(/,/g,''));
-    const bm=text.match(/余额.*?([\d,]+\.?\d*)\s*元/);if(bm)result.balance=parseFloat(bm[1].replace(/,/g,''));
-    const cm=text.match(/尾号(\d{4})/);if(cm)result.cardLast4=cm[1];
-    const dm=text.match(/(\d{1,2})月(\d{1,2})日/);if(dm){result.month=dm[1];result.day=dm[2];}
-    const mm=text.match(/[【\[](.+?)[】\]]/);if(mm)result.merchant=mm[1].trim();
-    return classifyAndReturn(result, text);
+  result.descStr=desc;
+
+  // Parse description: "消费支付宝-中国石油天然气股份有限公司…" -> paymentMethod=支付宝, merchant=中国石油天然气股份有限公司
+  let payMethod='';let realMerchant='';
+  if(desc){
+    // Pattern: "消费XXX-YYY" or "XXX-YYY"
+    let parts=desc.split(/[-–—]/);
+    if(parts.length>=2){
+      let first=parts[0].replace(/^(消费|支付|快捷支付|在线支付)\s*/,'');
+      payMethod=first.trim();
+      realMerchant=parts.slice(1).join('-').replace(/…|\.{3}$/,'').trim();
+    }else{
+      payMethod=desc.replace(/^(消费|支付|快捷支付|在线支付)\s*/,'').trim();
+      realMerchant='';
+    }
   }
 
-  return {error:'无法识别短信格式，请确认是否为银行动账提醒'};
+  // Fallback: check 【】 brackets only if no description found
+  if(!realMerchant){
+    let bc=text.match(/[【\[](.+?)[】\]]/);
+    if(bc&&!/工商银行|95588|工银|ICBC/i.test(bc[1])) realMerchant=bc[1].trim();
+  }
+  result.merchant=realMerchant||'';
+  result.payMethod=payMethod||'';
+
+  return classifyAndReturn(result,text);
 }
 
-function classifyAndReturn(result, text){
+function classifyAndReturn(result,text){
   // Only process card 8945
   if(result.cardLast4&&result.cardLast4!=='8945') return {error:'仅支持尾号8945的银行卡，当前卡尾号'+result.cardLast4};
 
-  // Suggested account: default to ICBC, override based on keywords
   result.suggestedAccountId='acc_icbc';
+  result.catId='cat_other_exp';
+  let pm=result.payMethod||'';
+  let mch=result.merchant||'';
 
-  // Keyword classification (order matters — more specific rules first)
-  if(/贷款本息|房贷|住房贷款|按揭/.test(text)){
-    result.catId='cat_mortgage';result.suggestedAccountId='acc_icbc';
-  }else if(/石油|石化|中石油|中石化|加油站/.test(text)){
-    result.catId='cat_gasoline';result.suggestedAccountId='acc_icbc';
-  }else if(/抖音|拼多多|京东|淘宝|阿里巴巴|美团/.test(text)){
-    result.catId='cat_online';result.suggestedAccountId='acc_icbc';
-  }else if(/天翼|电信|中国电信/.test(text)){
-    result.catId='cat_telecom';result.suggestedAccountId='acc_icbc';
-  }else if(/财付通/.test(text)){
-    result.catId='cat_other_exp';result.suggestedAccountId='acc_wechat';
-  }else if(/支付宝/.test(text)){
-    result.catId='cat_other_exp';result.suggestedAccountId='acc_alipay';
-  }else if(/工商银行.*收入|工行.*工资|工资.*工行|工资收入/.test(text)){
-    result.type='income';result.catId='cat_salary';result.suggestedAccountId='acc_icbc';
-  }else if(/工资|奖金|津贴|补贴/.test(text)){
-    result.type='income';result.catId='cat_salary';
-  }else if(/退款|退货|退还/.test(text)){
-    result.type='income';result.catId='cat_refund';
-  }else if(result.type==='expense'){
-    result.catId='cat_other_exp';
-  }else{
-    result.catId='cat_other_inc';
+  // === INCOME classification ===
+  if(result.type==='income'){
+    if(/退款|退货|退还/.test(text)) result.catId='cat_refund';
+    else if(/工资|奖金|津贴|补贴/.test(text)){ result.catId='cat_salary';result.suggestedAccountId='acc_icbc'; }
+    else result.catId='cat_other_inc';
+    return buildDate(result);
   }
 
-  // Build date string
+  // === Payment method → account ===
+  if(/财付通/.test(pm)){ result.suggestedAccountId='acc_wechat'; }
+  else if(/支付宝/.test(pm)){ result.suggestedAccountId='acc_alipay'; }
+  // Also check full text for payment method
+  if(!pm&&/财付通/.test(text)){ result.suggestedAccountId='acc_wechat'; }
+  else if(!pm&&/支付宝/.test(text)){ result.suggestedAccountId='acc_alipay'; }
+
+  // === Category from merchant name (mch) or full SMS text ===
+  // Build a combined search string: merchant name + full text
+  let searchStr=(mch+' '+text).toLowerCase();
+
+  // 加油：石油/石化/加油站/燃料
+  if(/石油|石化|中石油|中石化|加油站|燃料|加气/.test(searchStr)){ result.catId='cat_gasoline'; }
+  // 餐饮：外卖/餐厅/饭店/小吃/奶茶/咖啡/快餐/火锅/烧烤/烘焙
+  else if(/美团|饿了么|外卖|餐厅|饭店|小吃|奶茶|咖啡|肯德基|麦当劳|星巴克|火锅|烧烤|烘焙|面馆|食堂|快餐|饮品/.test(searchStr)){ result.catId='cat_food'; }
+  // 网购：淘宝/京东/拼多多/抖音(电商)/阿里巴巴/唯品会/苏宁/当当
+  else if(/抖音|拼多多|京东|淘宝|阿里巴巴|唯品会|苏宁|当当|天猫|网易严选|闲鱼/.test(searchStr)){ result.catId='cat_online'; }
+  // 交通：滴滴/地铁/公交/高速/停车/加油/高铁/机票/火车/航空
+  else if(/滴滴|地铁|公交|高速|停车|高铁|机票|火车|航空|航班|客车/.test(searchStr)){ result.catId='cat_transport'; }
+  // 通信：天翼/电信/移动/联通/话费
+  else if(/天翼|电信|中国电信|移动|联通|话费|通信/.test(searchStr)){ result.catId='cat_telecom'; }
+  // 购物：超市/商场/便利店/百货/店/铺
+  else if(/超市|商场|便利店|百货|沃尔玛|永辉|大润发|华润|物美|屈臣氏/.test(searchStr)){ result.catId='cat_shopping'; }
+  // 住房：房租/物业/水电/燃气/暖气
+  else if(/房租|物业|水电|燃气|暖气|自来水|电力/.test(searchStr)){ result.catId='cat_housing'; }
+  // 房贷：贷款/房贷/按揭/还贷
+  else if(/贷款本息|房贷|住房贷款|按揭|还贷|个贷/.test(searchStr)){ result.catId='cat_mortgage'; }
+  // 娱乐：电影/游戏/KTV/旅游/酒店/景点/演出/票务/健身/洗浴
+  else if(/电影|游戏|KTV|旅游|酒店|景点|演出|票务|健身|洗浴|按摩/.test(searchStr)){ result.catId='cat_entertain'; }
+  // 医疗：医院/药店/诊所/体检/挂号/药房
+  else if(/医院|药店|诊所|体检|挂号|药房|医护/.test(searchStr)){ result.catId='cat_medical'; }
+  // 教育：书店/课程/培训/学费/学校/图书
+  else if(/书店|课程|培训|学费|学校|图书|教材/.test(searchStr)){ result.catId='cat_edu'; }
+  // 理财：基金/股票/保险/理财
+  else if(/基金|股票|保险|理财/.test(searchStr)){ result.catId='cat_invest'; }
+  // else cat_other_exp (default)
+
+  return buildDate(result);
+}
+
+function buildDate(result){
   if(result.month&&result.day){
     const y=new Date().getFullYear();
     result.date=`${y}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
-    // If date is in the future (cross-year), use previous year
     if(new Date(result.date)>new Date()){
       result.date=`${y-1}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
     }
-  }else{
-    result.date=todayStr();
-  }
-
+  }else{ result.date=todayStr(); }
   return result;
 }
 
@@ -540,14 +586,21 @@ function txnItemHTML(t){
     <div class="txn-amount ${t.type==='expense'?'exp':'inc'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
   </div>`;
 }
-function extractMerchant(note){
-  if(!note) return '';
+function extractMerchant(t){
+  // For SMS transactions: use payMethod or merchant from the note
+  if(!t) return '';
+  let note=t.note||'';
   // Extract text before [尾号
-  const m=note.match(/^(.+?)\s*\[尾号/);
-  if(m) return m[1].substring(0,10);
-  // If no 尾号 pattern, use note directly (max 8 chars)
-  if(note.length<=10) return note;
-  return note.substring(0,8)+'…';
+  let m=note.match(/^(.+?)\s*\[尾号/);
+  if(m&&m[1]) return m[1].substring(0,15);
+  return note.substring(0,10);
+}
+function makeSmsNote(result){
+  let parts=[];
+  if(result.merchant) parts.push(result.merchant);
+  if(result.payMethod) parts.push('('+result.payMethod+')');
+  if(result.cardLast4) parts.push('[尾号'+result.cardLast4+']');
+  return parts.join(' ');
 }
 
 // ============================
@@ -653,7 +706,7 @@ function parseAndPreview(){
   }
   const cat=DATA.categories.find(c=>c.id===result.catId);
   const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
-  el.innerHTML=`✅ 解析成功<br>📌 类型：${result.type==='expense'?'支出':'收入'} | 金额：<strong>${fmtMoney(result.amount)}元</strong><br>📅 日期：${result.date} | 卡尾号：${result.cardLast4||'未识别'}<br>🏷️ 自动分类：${cat?cat.icon+' '+cat.name:'其他'} | 账户：${acc?acc.name:'默认'}<br>${result.merchant?'🏪 商户：'+result.merchant+'<br>':''}💰 余额：${result.balance?fmtMoney(result.balance)+'元':'未识别'}`;
+  el.innerHTML=`✅ 解析成功<br>📌 ${result.type==='expense'?'支出':'收入'} <strong>${fmtMoney(result.amount)}元</strong> | ${result.payMethod?'消费类型：'+result.payMethod+' | ':''}${cat?cat.icon+' '+cat.name:'其它'}<br>📅 ${result.date} | 尾号${result.cardLast4||'?'} | 账户：${acc?acc.name:'默认'}<br>${result.merchant?'🏪 消费标签：'+result.merchant+'<br>':''}💰 余额：${result.balance?fmtMoney(result.balance)+'元':'未识别'}`;
   btn.style.display='block';
   pendingSmsResult=result;
 }
@@ -665,7 +718,7 @@ function confirmSmsRecord(){
   const acc=DATA.accounts.find(a=>a.id===(r.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
   const txn={
     id:genId('txn_'),type:r.type,amount:r.amount,categoryId:catId,accountId:acc.id,
-    date:r.date,note:(r.merchant||'')+(r.cardLast4?' [尾号'+r.cardLast4+']':''),smsId:genId('sms_'),createdAt:new Date().toISOString()
+    date:r.date,note:makeSmsNote(r),smsId:genId('sms_'),createdAt:new Date().toISOString()
   };
   DATA.transactions.push(txn);
   updateAccountBalance(acc.id,r.type,r.amount);
@@ -1054,7 +1107,7 @@ window.onNativeSmsReceived=function(smsText){
     const txn={
       id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
       accountId:acc.id,date:result.date,
-      note:(result.merchant||'')+(result.cardLast4?' [尾号'+result.cardLast4+']':''),
+      note:makeSmsNote(result),
       smsId:genId('sms_'),createdAt:new Date().toISOString()
     };
     DATA.transactions.push(txn);
@@ -1084,7 +1137,7 @@ window.onNativeHistoricalSms=function(smsList){
       const txn={
         id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
         accountId:acc.id,date:result.date,
-        note:(result.merchant||'')+(result.cardLast4?' [尾号'+result.cardLast4+']':''),
+        note:makeSmsNote(result),
         smsId:genId('sms_'),createdAt:new Date().toISOString()
       };
       DATA.transactions.push(txn);
