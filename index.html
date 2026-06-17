@@ -522,17 +522,13 @@ function renderHome(){
       <div style="flex:1;text-align:center"><div style="color:var(--exp);font-size:1.2rem;font-weight:700">-${fmtMoney(yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">总支出</div></div>
       <div style="flex:1;text-align:center"><div style="font-size:1.2rem;font-weight:700">${fmtMoney(yearInc-yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">结余</div></div>
     </div>`;
-  if(yearExp>0){
-    html+=`<div style="border-top:1px solid var(--border);padding-top:6px;max-height:140px;overflow-y:auto;-webkit-overflow-scrolling:touch">`;
-    expCats.forEach(ec=>{
-      const amt=yearTxns.filter(t=>t.type==='expense'&&t.categoryId===ec.id).reduce((s,t)=>s+t.amount,0);
-      if(amt>0){
-        const pct=Math.round(amt/yearExp*100);
-        html+=`<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:0.72rem"><span style="width:32px;text-align:right;font-weight:600">${ec.n}</span><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:var(--exp);opacity:${0.4+pct/200}"></div></div><span style="min-width:48px;text-align:right">${fmtMoney(amt)}</span></div>`;
-      }
-    });
-    html+=`</div>`;
-  }
+  html+=`<div style="border-top:1px solid var(--border);padding-top:6px;max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch">`;
+  expCats.forEach(ec=>{
+    const amt=yearTxns.filter(t=>t.type==='expense'&&t.categoryId===ec.id).reduce((s,t)=>s+t.amount,0);
+    const pct=yearExp>0?Math.round(amt/yearExp*100):0;
+    html+=`<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:0.72rem"><span style="width:32px;text-align:right;font-weight:600">${ec.n}</span><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:var(--exp);opacity:${0.4+pct/200}"></div></div><span style="min-width:48px;text-align:right">${fmtMoney(amt)}</span></div>`;
+  });
+  html+=`</div>`;
   html+=`</div>`;
 
   // Weekly summary
