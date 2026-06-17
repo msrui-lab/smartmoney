@@ -251,7 +251,9 @@ function toast(msg,type=''){ const el=document.createElement('div');el.className
 
 function todayStr(){ return new Date().toISOString().split('T')[0]; }
 function fmtMoney(n){ return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
-function fmtDate(d){ const dt=new Date(d); return `${dt.getMonth()+1}/${dt.getDate()}`; }
+function dateOnly(d){ return String(d||'').split(' ')[0]; }
+function fmtDate(d){ if(!d)return'';const s=dateOnly(d);const dt=new Date(s);return `${dt.getMonth()+1}/${dt.getDate()}`; }
+function fmtTime(d){ if(!d)return'';const p=String(d).split(' ');return p[1]||''; }
 function fmtDateFull(d){ const dt=new Date(d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; }
 function getWeekday(d){ return ['日','一','二','三','四','五','六'][new Date(d).getDay()]; }
 function getMonth(d){ const dt=new Date(d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`; }
@@ -266,7 +268,7 @@ function getWeekExpenses(){
   for(let i=0;i<7;i++){
     const d=new Date(monday);d.setDate(monday.getDate()+i);
     const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const amount=DATA.transactions.filter(t=>t.type==='expense'&&t.date===ds).reduce((s,t)=>s+t.amount,0);
+    const amount=DATA.transactions.filter(t=>t.type==='expense'&&dateOnly(t.date)===ds).reduce((s,t)=>s+t.amount,0);
     days.push({label:dayNames[i],date:ds,amount});
   }
   const total=days.reduce((s,d)=>s+d.amount,0);
@@ -278,7 +280,7 @@ function getWeekExpenses(){
   for(let i=0;i<7;i++){
     const d=new Date(lastMon);d.setDate(lastMon.getDate()+i);
     const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    lastTotal+=DATA.transactions.filter(t=>t.type==='expense'&&t.date===ds).reduce((s,t)=>s+t.amount,0);
+    lastTotal+=DATA.transactions.filter(t=>t.type==='expense'&&dateOnly(t.date)===ds).reduce((s,t)=>s+t.amount,0);
   }
   const trend=lastTotal>0?Math.round((total-lastTotal)/lastTotal*100):null;
   const startStr=`${monday.getMonth()+1}/${monday.getDate()}`;
@@ -292,7 +294,7 @@ function getWeekExpenses(){
     for(let i=0;i<7;i++){
       const d=new Date(wMon);d.setDate(wMon.getDate()+i);
       const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      wTotal+=DATA.transactions.filter(t=>t.type==='expense'&&t.date===ds).reduce((s,t)=>s+t.amount,0);
+      wTotal+=DATA.transactions.filter(t=>t.type==='expense'&&dateOnly(t.date)===ds).reduce((s,t)=>s+t.amount,0);
     }
     const wStart=`${wMon.getMonth()+1}/${wMon.getDate()}`;
     const wEnd=`${new Date(wMon.getTime()+6*86400000).getMonth()+1}/${new Date(wMon.getTime()+6*86400000).getDate()}`;
@@ -439,10 +441,9 @@ function classifyAndReturn(result,text){
 function buildDate(result){
   if(result.month&&result.day){
     const y=new Date().getFullYear();
-    result.date=`${y}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
-    if(new Date(result.date)>new Date()){
-      result.date=`${y-1}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
-    }
+    let d=`${y}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
+    if(new Date(d)>new Date()) d=`${y-1}-${String(parseInt(result.month)).padStart(2,'0')}-${String(parseInt(result.day)).padStart(2,'0')}`;
+    result.date=d+(result.time?' '+result.time:'');
   }else{ result.date=todayStr(); }
   return result;
 }
@@ -509,6 +510,31 @@ function renderHome(){
     html+=`<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:0.78rem;font-weight:600">📊 预算进度</span><span style="font-size:0.75rem;color:${budgetPct>=80?'var(--exp)':'var(--text2)'};font-weight:600">${budgetPct}%</span></div><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(budgetPct,100)}%;background:${barColor}"></div></div></div>`;
   }
 
+  // Yearly summary
+  const y=new Date().getFullYear();
+  const yearTxns=DATA.transactions.filter(t=>dateOnly(t.date)>=y+'-01-01'&&dateOnly(t.date)<=y+'-12-31');
+  const yearExp=yearTxns.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const yearInc=yearTxns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expCats=[{id:'cat_mortgage',n:'房贷'},{id:'cat_gasoline',n:'加油'},{id:'cat_online',n:'网购'},{id:'cat_telecom',n:'通信'},{id:'cat_food',n:'餐饮'},{id:'cat_edu',n:'教育'},{id:'cat_transport',n:'交通'},{id:'cat_other_exp',n:'其他'}];
+  html+=`<div class="card" style="margin-bottom:12px"><div style="font-size:0.82rem;font-weight:700;margin-bottom:8px">📈 ${y}年度统计</div>
+    <div style="display:flex;gap:12px;margin-bottom:8px">
+      <div style="flex:1;text-align:center"><div style="color:var(--inc);font-size:1.2rem;font-weight:700">+${fmtMoney(yearInc)}</div><div style="font-size:0.65rem;color:var(--text3)">总收入</div></div>
+      <div style="flex:1;text-align:center"><div style="color:var(--exp);font-size:1.2rem;font-weight:700">-${fmtMoney(yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">总支出</div></div>
+      <div style="flex:1;text-align:center"><div style="font-size:1.2rem;font-weight:700">${fmtMoney(yearInc-yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">结余</div></div>
+    </div>`;
+  if(yearExp>0){
+    html+=`<div style="border-top:1px solid var(--border);padding-top:6px">`;
+    expCats.forEach(ec=>{
+      const amt=yearTxns.filter(t=>t.type==='expense'&&t.categoryId===ec.id).reduce((s,t)=>s+t.amount,0);
+      if(amt>0){
+        const pct=Math.round(amt/yearExp*100);
+        html+=`<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:0.72rem"><span style="width:32px;text-align:right;font-weight:600">${ec.n}</span><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:var(--exp);opacity:${0.4+pct/200}"></div></div><span style="min-width:48px;text-align:right">${fmtMoney(amt)}</span></div>`;
+      }
+    });
+    html+=`</div>`;
+  }
+  html+=`</div>`;
+
   // Weekly summary
   const weekData=getWeekExpenses();
   html+=`<div class="card" style="margin-bottom:12px">
@@ -520,7 +546,7 @@ function renderHome(){
   weekData.days.forEach(d=>{
     const maxH=Math.max(...weekData.days.map(x=>x.amount),1);
     const h=d.amount/maxH*60;
-    const isToday=d.date===todayStr();
+    const isToday=dateOnly(d.date)===todayStr();
     html+=`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
       <span style="font-size:0.55rem;color:${d.amount>0?'var(--exp)':'var(--text3)'};font-weight:${d.amount>0?'700':'400'}">${d.amount>0?d.amount.toFixed(0):''}</span>
       <div style="width:100%;max-width:28px;height:${Math.max(h,2)}px;background:${isToday?'var(--exp)':d.amount>0?'#f4a098':'#e8ecf1'};border-radius:4px 4px 0 0;${isToday?'box-shadow:0 2px 6px rgba(232,85,61,0.3)':''}"></div>
@@ -564,7 +590,7 @@ function renderHome(){
   html+=`</div>`;
 
   // Recent transactions
-  const recent=DATA.transactions.filter(t=>t.date<=todayStr()).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt?.localeCompare(a.createdAt||'')||0).slice(0,8);
+  const recent=DATA.transactions.filter(t=>dateOnly(t.date)<=todayStr()).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt?.localeCompare(a.createdAt||'')||0).slice(0,8);
   html+=`<div style="margin-top:16px"><div style="font-size:0.82rem;font-weight:700;margin-bottom:8px">📋 近期账单</div><div class="card">`;
   if(recent.length){
     recent.forEach(t=>html+=txnItemHTML(t));
@@ -581,34 +607,64 @@ function txnItemHTML(t){
   const acc=DATA.accounts.find(a=>a.id===t.accountId);
   const mch=t.merchant||extractMerchantNote(t.note);
   const pm=t.payMethod||'';
-  const timeStr=t.sTime||parseTimeFromNote(t.note);
-  return `<div class="txn-item">
+  const tm=fmtTime(t.date);
+  return `<div class="txn-item" onclick="showTxnDetail('${t.id}')" style="cursor:pointer">
     <div class="txn-icon" style="background:${t.type==='expense'?'var(--exp-l)':'var(--inc-l)'}">${cat?cat.icon:'📌'}</div>
     <div class="txn-info">
-      <div class="txn-cat">${cat?cat.name:'其他'}<span style="font-size:0.68rem;color:var(--text2);margin-left:8px;font-weight:400">${fmtDate(t.date)}${timeStr?' '+timeStr:''}</span></div>
+      <div class="txn-cat">${cat?cat.name:'其他'}<span style="font-size:0.68rem;color:var(--text2);margin-left:8px;font-weight:400">${fmtDate(t.date)}${tm?' '+tm:''}</span></div>
       <div class="txn-meta">${mch||acc?.name||''}${pm?' · '+pm:''}</div>
     </div>
     <div class="txn-amount ${t.type==='expense'?'exp':'inc'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
   </div>`;
 }
-function parseTimeFromNote(note){
-  if(!note) return '';
-  let m=note.match(/@(\d{2}:\d{2})/);
-  return m?m[1]:'';
-}
 function makeSmsNote(result){
   let parts=[];
   if(result.merchant) parts.push(result.merchant);
   if(result.payMethod) parts.push('('+result.payMethod+')');
-  if(result.time) parts.push('@'+result.time);
   if(result.cardLast4) parts.push('[尾号'+result.cardLast4+']');
   return parts.join(' ');
 }
 function extractMerchantNote(note){
   if(!note) return '';
-  // Stop at @HH:MM or [尾号
-  let clean=note.replace(/\s*@\d{2}:\d{2}/,'').replace(/\s*\[尾号.*/,'');
-  return clean.substring(0,15);
+  let m=note.match(/^(.+?)\s*\[尾号/);
+  if(m&&m[1]) return m[1].substring(0,15);
+  return note.substring(0,10);
+}
+function showTxnDetail(txnId){
+  const t=DATA.transactions.find(x=>x.id===txnId);
+  if(!t) return;
+  const cat=DATA.categories.find(c=>c.id===t.categoryId);
+  const acc=DATA.accounts.find(a=>a.id===t.accountId);
+  const mch=t.merchant||extractMerchantNote(t.note);
+  const pm=t.payMethod||'';
+  const tm=fmtTime(t.date);
+  const body=`
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="font-size:2.5rem;margin-bottom:4px">${cat?cat.icon:'📌'}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:${t.type==='expense'?'var(--exp)':'var(--inc)'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
+      <div style="font-size:0.78rem;color:var(--text2)">${cat?cat.name:'其他'}</div>
+    </div>
+    <div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px">
+      <div class="form-row"><div style="font-size:0.75rem;color:var(--text2)">日期时间</div><div style="font-size:0.82rem;font-weight:600;text-align:right">${fmtDate(t.date)}${tm?' '+tm:''}</div></div>
+      <div class="form-row" style="margin-top:8px"><div style="font-size:0.75rem;color:var(--text2)">消费类型</div><div style="font-size:0.82rem;font-weight:600;text-align:right">${cat?cat.name:'其他'}</div></div>
+      ${mch?`<div class="form-row" style="margin-top:8px"><div style="font-size:0.75rem;color:var(--text2)">商户</div><div style="font-size:0.82rem;font-weight:600;text-align:right">${mch}</div></div>`:''}
+      ${pm?`<div class="form-row" style="margin-top:8px"><div style="font-size:0.75rem;color:var(--text2)">支付方式</div><div style="font-size:0.82rem;font-weight:600;text-align:right">${pm}</div></div>`:''}
+      <div class="form-row" style="margin-top:8px"><div style="font-size:0.75rem;color:var(--text2)">账户</div><div style="font-size:0.82rem;font-weight:600;text-align:right">${acc?acc.name:'未知'}</div></div>
+      ${t.note?`<div style="margin-top:8px"><div style="font-size:0.75rem;color:var(--text2);margin-bottom:2px">备注</div><div style="font-size:0.78rem;background:#fff;padding:6px 8px;border-radius:4px">${t.note.replace(/\[尾号\w+\]/,'').trim()}</div></div>`:''}
+    </div>
+    ${t.smsId?`<div style="text-align:center;margin-top:12px;font-size:0.65rem;color:var(--text3)">📱 来自95588短信自动记账</div>`:''}
+    <button class="btn btn-dang btn-sm btn-block" style="margin-top:14px" onclick="deleteTxnFromDetail('${t.id}')">🗑️ 删除此记录</button>
+  `;
+  openBottomSheet('收支详情',body,null,true);
+}
+function deleteTxnFromDetail(txnId){
+  if(!confirm('确定删除此记录？')) return;
+  const t=DATA.transactions.find(x=>x.id===txnId);
+  DATA.transactions=DATA.transactions.filter(x=>x.id!==txnId);
+  saveData();closeSheet();
+  if(currentTab==='home') renderHome();
+  if(currentTab==='bills') refreshBills();
+  toast('已删除');
 }
 
 // ============================
@@ -726,7 +782,7 @@ function confirmSmsRecord(){
   const acc=DATA.accounts.find(a=>a.id===(r.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
   const txn={
     id:genId('txn_'),type:r.type,amount:r.amount,categoryId:catId,accountId:acc.id,
-    date:r.date,merchant:r.merchant||'',payMethod:r.payMethod||'',sTime:r.time||'',note:makeSmsNote(r),smsId:genId('sms_'),createdAt:new Date().toISOString()
+    date:r.date,merchant:r.merchant||'',payMethod:r.payMethod||'',note:makeSmsNote(r),smsId:genId('sms_'),createdAt:new Date().toISOString()
   };
   DATA.transactions.push(txn);
   updateAccountBalance(acc.id,r.type,r.amount);
@@ -778,8 +834,8 @@ function refreshBills(){
   let listHTML='';
   txns.forEach(t=>{
     if(t.date!==lastDate){
-      const total=t.filter?0:txns.filter(x=>x.date===t.date).reduce((s,x)=>x.type==='expense'?s-x.amount:s+x.amount,0);
-      const daySum=txns.filter(x=>x.date===t.date).reduce((s,x)=>x.type==='expense'?s-x.amount:s+x.amount,0);
+      const total=t.filter?0:txns.filter(x=>dateOnly(x.date)===dateOnly(t.date)).reduce((s,x)=>x.type==='expense'?s-x.amount:s+x.amount,0);
+      const daySum=txns.filter(x=>dateOnly(x.date)===dateOnly(t.date)).reduce((s,x)=>x.type==='expense'?s-x.amount:s+x.amount,0);
       listHTML+=`<div class="date-sep"><div class="date-badge"><strong>${fmtDate(t.date)}</strong><span class="d-sub">周${getWeekday(t.date)}</span></div><span style="font-size:0.72rem;color:${daySum>=0?'var(--inc)':'var(--exp)'}">${daySum>=0?'+':''}${fmtMoney(daySum)}</span></div>`;
       lastDate=t.date;
     }
@@ -1055,14 +1111,14 @@ function pickCatIcon(icon){
 // ============================
 // BOTTOM SHEET MODAL
 // ============================
-function openBottomSheet(title,bodyHtml,onSave){
+function openBottomSheet(title,bodyHtml,onSave,noBtn){
   const container=document.getElementById('modalContainer');
   container.innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeSheet()">
     <div class="modal-sheet"><div class="modal-handle"></div>
     <div class="modal-header"><h3>${title}</h3><button class="btn-icon" onclick="closeSheet()" style="border:none;background:var(--bg);cursor:pointer;font-size:1.2rem;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center">✕</button></div>
     <div>${bodyHtml}</div>
-    <button class="btn btn-pri btn-block" style="margin-top:16px" id="sheetSaveBtn">保存</button></div></div>`;
-  document.getElementById('sheetSaveBtn').onclick=()=>{onSave();closeSheet();};
+    ${!noBtn?`<button class="btn btn-pri btn-block" style="margin-top:16px" id="sheetSaveBtn">保存</button>`:''}</div></div>`;
+  if(!noBtn) document.getElementById('sheetSaveBtn').onclick=()=>{onSave();closeSheet();};
 }
 function closeSheet(){ document.getElementById('modalContainer').innerHTML=''; }
 
@@ -1118,7 +1174,7 @@ window.onNativeSmsReceived=function(smsText){
     const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
     const txn={
       id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
-      accountId:acc.id,date:result.date,merchant:result.merchant||'',payMethod:result.payMethod||'',sTime:result.time||'',
+      accountId:acc.id,date:result.date,merchant:result.merchant||'',payMethod:result.payMethod||'',
       note:makeSmsNote(result),
       smsId:genId('sms_'),createdAt:new Date().toISOString()
     };
