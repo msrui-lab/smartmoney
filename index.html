@@ -523,7 +523,7 @@ function renderHome(){
       <div style="flex:1;text-align:center"><div style="font-size:1.2rem;font-weight:700">${fmtMoney(yearInc-yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">结余</div></div>
     </div>`;
   if(yearExp>0){
-    html+=`<div style="border-top:1px solid var(--border);padding-top:6px">`;
+    html+=`<div style="border-top:1px solid var(--border);padding-top:6px;max-height:140px;overflow-y:auto;-webkit-overflow-scrolling:touch">`;
     expCats.forEach(ec=>{
       const amt=yearTxns.filter(t=>t.type==='expense'&&t.categoryId===ec.id).reduce((s,t)=>s+t.amount,0);
       if(amt>0){
@@ -580,14 +580,6 @@ function renderHome(){
     </div>`;
   });
   html+=`</div></div>`;
-
-  // Accounts
-  html+=`<div style="font-size:0.82rem;font-weight:700;margin-bottom:6px">💳 账户总览</div><div class="account-slider">`;
-  DATA.accounts.forEach(acc=>{
-    const bal=acc.balance||0;
-    html+=`<div class="account-chip"><div class="ac-name">${acc.name}</div><div class="ac-balance" style="color:${bal>=0?'var(--text)':'var(--exp)'}">${fmtMoney(bal)}</div><div class="ac-bank">${acc.type}${acc.cardLast4?' · 尾号'+acc.cardLast4:''}</div></div>`;
-  });
-  html+=`</div>`;
 
   // Recent transactions
   const recent=DATA.transactions.filter(t=>dateOnly(t.date)<=todayStr()).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt?.localeCompare(a.createdAt||'')||0).slice(0,8);
