@@ -581,29 +581,34 @@ function txnItemHTML(t){
   const acc=DATA.accounts.find(a=>a.id===t.accountId);
   const mch=t.merchant||extractMerchantNote(t.note);
   const pm=t.payMethod||'';
+  const timeStr=t.sTime||parseTimeFromNote(t.note);
   return `<div class="txn-item">
     <div class="txn-icon" style="background:${t.type==='expense'?'var(--exp-l)':'var(--inc-l)'}">${cat?cat.icon:'📌'}</div>
     <div class="txn-info">
-      <div class="txn-cat">${cat?cat.name:'其他'}<span style="font-size:0.68rem;color:var(--text2);margin-left:8px;font-weight:400">${fmtDate(t.date)}${t.sTime?' '+t.sTime:''}</span></div>
+      <div class="txn-cat">${cat?cat.name:'其他'}<span style="font-size:0.68rem;color:var(--text2);margin-left:8px;font-weight:400">${fmtDate(t.date)}${timeStr?' '+timeStr:''}</span></div>
       <div class="txn-meta">${mch||acc?.name||''}${pm?' · '+pm:''}</div>
     </div>
     <div class="txn-amount ${t.type==='expense'?'exp':'inc'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
   </div>`;
 }
+function parseTimeFromNote(note){
+  if(!note) return '';
+  let m=note.match(/@(\d{2}:\d{2})/);
+  return m?m[1]:'';
+}
 function makeSmsNote(result){
   let parts=[];
   if(result.merchant) parts.push(result.merchant);
   if(result.payMethod) parts.push('('+result.payMethod+')');
+  if(result.time) parts.push('@'+result.time);
   if(result.cardLast4) parts.push('[尾号'+result.cardLast4+']');
   return parts.join(' ');
 }
 function extractMerchantNote(note){
   if(!note) return '';
-  // Skip leading HH:MM time if present
-  let clean=note.replace(/^\d{2}:\d{2}\s+/,'');
-  let m=clean.match(/^(.+?)\s*\[尾号/);
-  if(m&&m[1]) return m[1].substring(0,15);
-  return clean.substring(0,10);
+  // Stop at @HH:MM or [尾号
+  let clean=note.replace(/\s*@\d{2}:\d{2}/,'').replace(/\s*\[尾号.*/,'');
+  return clean.substring(0,15);
 }
 
 // ============================
