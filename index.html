@@ -1093,6 +1093,10 @@ function clearAllData(){
 // ============================
 // Called by HarmonyOS WebView when ICBC (95588) SMS is received
 let nativeSmsEnabled=false;
+// Called by Android SmsReceiver with base64-encoded SMS body (safe transport)
+window.onNativeSmsB64=function(b64){
+  try{ var decoded=atob(b64); onNativeSmsReceived(decoded); }catch(e){}
+};
 // Called by Android/HarmonyOS native layer when SMS permission result is known
 window.onSmsPermissionResult=function(granted){
   nativeSmsEnabled=granted;

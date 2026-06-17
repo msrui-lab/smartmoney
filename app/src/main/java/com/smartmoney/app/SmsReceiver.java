@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.telephony.SmsMessage;
+import android.util.Base64;
 import android.webkit.WebView;
 
 public class SmsReceiver extends BroadcastReceiver {
@@ -30,20 +31,16 @@ public class SmsReceiver extends BroadcastReceiver {
             String sender = sms.getOriginatingAddress();
             String body = sms.getMessageBody();
 
-            // Only process ICBC messages (95588)
             if (sender == null || body == null) continue;
             if (!sender.contains("95588")) continue;
 
-            // Forward to WebView via JS
             WebView wv = MainActivity.getWebView();
-            if (wv != null) {
-                String escapedBody = body.replace("\\", "\\\\")
-                                        .replace("'", "\\'")
-                                        .replace("\n", "\\n")
-                                        .replace("\r", "\\r");
-                final String js = "if(typeof onNativeSmsReceived==='function'){onNativeSmsReceived('" + escapedBody + "');}";
-                wv.post(() -> wv.evaluateJavascript(js, null));
-            }
+            if (wv == null) return;
+
+            // Use base64 to safely pass SMS body to JavaScript (avoids escaping bugs)
+            String b64 = Base64.encodeToString(body.getBytes(), Base64.NO_WRAP);
+            final String js = "if(typeof onNativeSmsB64==='function'){onNativeSmsB64('" + b64 + "');}";
+            wv.post(() -> wv.evaluateJavascript(js, null));
         }
     }
 }
