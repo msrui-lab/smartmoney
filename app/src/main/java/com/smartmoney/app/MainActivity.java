@@ -114,11 +114,11 @@ public class MainActivity extends Activity {
 
         historicalSmsLoaded = true;
 
-        // Calculate timestamp for May 1 of current year
+        // Calculate timestamp for January 1 of current year
         Calendar cal = Calendar.getInstance();
         int currentYear = cal.get(Calendar.YEAR);
-        cal.set(currentYear, Calendar.MAY, 1, 0, 0, 0);
-        long mayFirstMillis = cal.getTimeInMillis();
+        cal.set(currentYear, Calendar.JANUARY, 1, 0, 0, 0);
+        long janFirstMillis = cal.getTimeInMillis();
 
         StringBuilder sb = new StringBuilder();
         sb.append("[");
@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
             Uri uri = Telephony.Sms.Inbox.CONTENT_URI;
             String[] projection = {"address", "body", "date"};
             String selection = "address LIKE ? AND date >= ?";
-            String[] selectionArgs = {"%95588%", String.valueOf(mayFirstMillis)};
+            String[] selectionArgs = {"%95588%", String.valueOf(janFirstMillis)};
             String sortOrder = "date ASC";
 
             Cursor cursor = getContentResolver().query(uri, projection, selection, selectionArgs, sortOrder);

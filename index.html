@@ -579,18 +579,19 @@ function renderHome(){
 function txnItemHTML(t){
   const cat=DATA.categories.find(c=>c.id===t.catId);
   const acc=DATA.accounts.find(a=>a.id===t.accountId);
-  const merchant=extractMerchant(t.note);
+  const mch=t.merchant||extractMerchantNote(t.note);
+  const pm=t.payMethod||'';
   return `<div class="txn-item">
     <div class="txn-icon" style="background:${t.type==='expense'?'var(--exp-l)':'var(--inc-l)'}">${cat?cat.icon:'📌'}</div>
-    <div class="txn-info"><div class="txn-cat">${cat?cat.name:'其他'}${merchant?`<span style="display:inline-block;background:#f1f5f9;color:var(--text2);font-size:0.65rem;padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle">${merchant}</span>`:''}</div><div class="txn-meta">${fmtDateFull(t.date)}${acc?' · '+acc.name:''}</div></div>
+    <div class="txn-info">
+      <div class="txn-cat">${cat?cat.name:'其他'}<span style="font-size:0.65rem;color:var(--text3);margin-left:6px">${fmtDate(t.date)}${t.sTime?' '+t.sTime:''}</span></div>
+      <div class="txn-meta">${mch||acc?.name||''}${pm?' · '+pm:''}</div>
+    </div>
     <div class="txn-amount ${t.type==='expense'?'exp':'inc'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
   </div>`;
 }
-function extractMerchant(t){
-  // For SMS transactions: use payMethod or merchant from the note
-  if(!t) return '';
-  let note=t.note||'';
-  // Extract text before [尾号
+function extractMerchantNote(note){
+  if(!note) return '';
   let m=note.match(/^(.+?)\s*\[尾号/);
   if(m&&m[1]) return m[1].substring(0,15);
   return note.substring(0,10);
@@ -718,7 +719,7 @@ function confirmSmsRecord(){
   const acc=DATA.accounts.find(a=>a.id===(r.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
   const txn={
     id:genId('txn_'),type:r.type,amount:r.amount,categoryId:catId,accountId:acc.id,
-    date:r.date,note:makeSmsNote(r),smsId:genId('sms_'),createdAt:new Date().toISOString()
+    date:r.date,merchant:r.merchant||'',payMethod:r.payMethod||'',sTime:r.time||'',note:makeSmsNote(r),smsId:genId('sms_'),createdAt:new Date().toISOString()
   };
   DATA.transactions.push(txn);
   updateAccountBalance(acc.id,r.type,r.amount);
@@ -1106,7 +1107,7 @@ window.onNativeSmsReceived=function(smsText){
     const acc=DATA.accounts.find(a=>a.id===(result.suggestedAccountId||'acc_icbc'))||DATA.accounts[0];
     const txn={
       id:genId('txn_'),type:result.type,amount:result.amount,categoryId:catId,
-      accountId:acc.id,date:result.date,
+      accountId:acc.id,date:result.date,merchant:result.merchant||'',payMethod:result.payMethod||'',sTime:result.time||'',
       note:makeSmsNote(result),
       smsId:genId('sms_'),createdAt:new Date().toISOString()
     };
