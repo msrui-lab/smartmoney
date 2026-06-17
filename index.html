@@ -577,7 +577,7 @@ function renderHome(){
 }
 
 function txnItemHTML(t){
-  const cat=DATA.categories.find(c=>c.id===t.catId);
+  const cat=DATA.categories.find(c=>c.id===t.categoryId);
   const acc=DATA.accounts.find(a=>a.id===t.accountId);
   const mch=t.merchant||extractMerchantNote(t.note);
   const pm=t.payMethod||'';
