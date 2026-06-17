@@ -284,7 +284,22 @@ function getWeekExpenses(){
   const startStr=`${monday.getMonth()+1}/${monday.getDate()}`;
   const endStr=`${new Date(monday.getTime()+6*86400000).getMonth()+1}/${new Date(monday.getTime()+6*86400000).getDate()}`;
 
-  return {days,total,avg,trend,range:startStr+' - '+endStr};
+  // Last 2 weeks for comparison
+  const weekTotals=[];
+  for(let w=0;w<3;w++){
+    const wMon=new Date(monday);wMon.setDate(monday.getDate()-w*7);
+    let wTotal=0;
+    for(let i=0;i<7;i++){
+      const d=new Date(wMon);d.setDate(wMon.getDate()+i);
+      const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      wTotal+=DATA.transactions.filter(t=>t.type==='expense'&&t.date===ds).reduce((s,t)=>s+t.amount,0);
+    }
+    const wStart=`${wMon.getMonth()+1}/${wMon.getDate()}`;
+    const wEnd=`${new Date(wMon.getTime()+6*86400000).getMonth()+1}/${new Date(wMon.getTime()+6*86400000).getDate()}`;
+    weekTotals.push({total:wTotal,range:wStart+'-'+wEnd,label:w===0?'本周':w===1?'上周':'前周'});
+  }
+
+  return {days,total,avg,trend,range:startStr+' - '+endStr,weekTotals};
 }
 
 // ============================
@@ -393,8 +408,8 @@ function isSmsDuplicate(text,date){
   const hash=text.trim().substring(0,60);
   return DATA.smsRecords.some(s=>s.body.substring(0,60)===hash&&s.receivedAt===date);
 }
-function addSmsRecord(body,transactionId){
-  DATA.smsRecords.push({id:genId('sms_'),sender:'95588',body,receivedAt:todayStr(),parsed:true,transactionId});
+function addSmsRecord(body,transactionId,date){
+  DATA.smsRecords.push({id:genId('sms_'),sender:'95588',body,receivedAt:date||todayStr(),parsed:true,transactionId});
   if(DATA.smsRecords.length>500) DATA.smsRecords.splice(0,DATA.smsRecords.length-500);
 }
 
@@ -474,6 +489,26 @@ function renderHome(){
     </div>
   </div>`;
 
+  // 3-week comparison
+  html+=`<div class="card" style="margin-bottom:12px">
+    <div style="font-size:0.82rem;font-weight:700;margin-bottom:10px">📊 近三周支出对比</div>
+    <div style="display:flex;gap:8px">`;
+  const maxWeek=Math.max(...weekData.weekTotals.map(w=>w.total),1);
+  weekData.weekTotals.forEach((w,i)=>{
+    const barH=w.total/maxWeek*100;
+    const isCurrent=i===0;
+    const colors=['#e8553d','#f4a098','#fad4cf'];
+    html+=`<div style="flex:1;text-align:center">
+      <div style="font-weight:700;font-size:0.9rem;color:${isCurrent?'var(--exp)':'var(--text2)'}">${fmtMoney(w.total)}</div>
+      <div style="height:60px;display:flex;align-items:flex-end;justify-content:center;margin:4px 0">
+        <div style="width:70%;max-width:40px;height:${Math.max(barH,2)}%;background:${colors[i]};border-radius:6px 6px 0 0;${isCurrent?'box-shadow:0 2px 8px rgba(232,85,61,0.3)':''}"></div>
+      </div>
+      <div style="font-size:0.65rem;color:var(--text3)">${w.label}</div>
+      <div style="font-size:0.6rem;color:var(--text3)">${w.range}</div>
+    </div>`;
+  });
+  html+=`</div></div>`;
+
   // Accounts
   html+=`<div style="font-size:0.82rem;font-weight:700;margin-bottom:6px">💳 账户总览</div><div class="account-slider">`;
   DATA.accounts.forEach(acc=>{
@@ -498,11 +533,21 @@ function renderHome(){
 function txnItemHTML(t){
   const cat=DATA.categories.find(c=>c.id===t.catId);
   const acc=DATA.accounts.find(a=>a.id===t.accountId);
+  const merchant=extractMerchant(t.note);
   return `<div class="txn-item">
     <div class="txn-icon" style="background:${t.type==='expense'?'var(--exp-l)':'var(--inc-l)'}">${cat?cat.icon:'📌'}</div>
-    <div class="txn-info"><div class="txn-cat">${cat?cat.name:'其他'}</div><div class="txn-meta">${fmtDateFull(t.date)}${t.note?' · '+t.note.substring(0,15):''}${acc?' · '+acc.name:''}</div></div>
+    <div class="txn-info"><div class="txn-cat">${cat?cat.name:'其他'}${merchant?`<span style="display:inline-block;background:#f1f5f9;color:var(--text2);font-size:0.65rem;padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle">${merchant}</span>`:''}</div><div class="txn-meta">${fmtDateFull(t.date)}${acc?' · '+acc.name:''}</div></div>
     <div class="txn-amount ${t.type==='expense'?'exp':'inc'}">${t.type==='expense'?'-':'+'}${fmtMoney(t.amount)}</div>
   </div>`;
+}
+function extractMerchant(note){
+  if(!note) return '';
+  // Extract text before [尾号
+  const m=note.match(/^(.+?)\s*\[尾号/);
+  if(m) return m[1].substring(0,10);
+  // If no 尾号 pattern, use note directly (max 8 chars)
+  if(note.length<=10) return note;
+  return note.substring(0,8)+'…';
 }
 
 // ============================
@@ -624,7 +669,7 @@ function confirmSmsRecord(){
   };
   DATA.transactions.push(txn);
   updateAccountBalance(acc.id,r.type,r.amount);
-  addSmsRecord(r.raw,txn.id);
+  addSmsRecord(r.raw,txn.id,r.date);
   saveData();
   toast('✅ 短信登记成功');
   document.getElementById('smsInput').value='';
@@ -1014,7 +1059,7 @@ window.onNativeSmsReceived=function(smsText){
     };
     DATA.transactions.push(txn);
     updateAccountBalance(acc.id,result.type,result.amount);
-    addSmsRecord(smsText,txn.id);
+    addSmsRecord(smsText,txn.id,result.date);
     saveData();
     // Show in-app toast if available, fallback to console
     try{ toast('📱 自动记账: '+(result.type==='expense'?'支出':'收入')+fmtMoney(result.amount)+'元'); }catch(e){}
@@ -1027,6 +1072,9 @@ window.onNativeSmsReceived=function(smsText){
 // Called by Android native layer to import historical SMS on first install
 window.onNativeHistoricalSms=function(smsList){
   if(!smsList||!Array.isArray(smsList)) return;
+  // One-time import: only run on first install
+  if(localStorage.getItem('sm_hist_imported')) return;
+  localStorage.setItem('sm_hist_imported','1');
   let imported=0,skipped=0;
   smsList.forEach(smsText=>{
     const result=parseICBCSms(smsText);
@@ -1041,7 +1089,7 @@ window.onNativeHistoricalSms=function(smsList){
       };
       DATA.transactions.push(txn);
       updateAccountBalance(acc.id,result.type,result.amount);
-      addSmsRecord(smsText,txn.id);
+      addSmsRecord(smsText,txn.id,result.date);
       imported++;
     }else{ skipped++; }
   });
