@@ -517,10 +517,10 @@ function renderHome(){
   const yearInc=yearTxns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
   const expCats=[{id:'cat_mortgage',n:'房贷'},{id:'cat_gasoline',n:'加油'},{id:'cat_online',n:'网购'},{id:'cat_telecom',n:'通信'},{id:'cat_food',n:'餐饮'},{id:'cat_edu',n:'教育'},{id:'cat_transport',n:'交通'},{id:'cat_other_exp',n:'其他'}];
   html+=`<div class="card" style="margin-bottom:12px"><div style="font-size:0.82rem;font-weight:700;margin-bottom:8px">📈 ${y}年度统计</div>
-    <div style="display:flex;gap:12px;margin-bottom:8px">
-      <div style="flex:1;text-align:center"><div style="color:var(--inc);font-size:1.2rem;font-weight:700">+${fmtMoney(yearInc)}</div><div style="font-size:0.65rem;color:var(--text3)">总收入</div></div>
-      <div style="flex:1;text-align:center"><div style="color:var(--exp);font-size:1.2rem;font-weight:700">-${fmtMoney(yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">总支出</div></div>
-      <div style="flex:1;text-align:center"><div style="font-size:1.2rem;font-weight:700">${fmtMoney(yearInc-yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">结余</div></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:4px">
+      <div style="flex-shrink:0;width:120px;text-align:center;scroll-snap-align:start;background:var(--bg);border-radius:var(--radius-sm);padding:12px 8px"><div style="color:var(--inc);font-size:1.2rem;font-weight:700">+${fmtMoney(yearInc)}</div><div style="font-size:0.65rem;color:var(--text3)">总收入</div></div>
+      <div style="flex-shrink:0;width:120px;text-align:center;scroll-snap-align:start;background:var(--bg);border-radius:var(--radius-sm);padding:12px 8px"><div style="color:var(--exp);font-size:1.2rem;font-weight:700">-${fmtMoney(yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">总支出</div></div>
+      <div style="flex-shrink:0;width:120px;text-align:center;scroll-snap-align:start;background:var(--bg);border-radius:var(--radius-sm);padding:12px 8px"><div style="font-size:1.2rem;font-weight:700">${fmtMoney(yearInc-yearExp)}</div><div style="font-size:0.65rem;color:var(--text3)">结余</div></div>
     </div>`;
   html+=`<div style="border-top:1px solid var(--border);padding-top:6px;max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch">`;
   expCats.forEach(ec=>{
