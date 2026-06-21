@@ -46,8 +46,8 @@ public class SmsReceiver extends BroadcastReceiver {
             if (sender == null || body == null) continue;
             if (!isBankSms(sender)) continue;
 
-            // Queue SMS for processing — WebView may not be ready yet
-            MainActivity.queueSms(body);
+            // Forward SMS — injects immediately if page ready, queues if not
+            MainActivity.onSmsReceived(body);
         }
     }
 }

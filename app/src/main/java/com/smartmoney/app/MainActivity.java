@@ -7,8 +7,6 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Telephony;
 import android.util.Base64;
 import android.webkit.WebSettings;
@@ -26,20 +24,34 @@ import java.util.Calendar;
 
 public class MainActivity extends Activity {
     private static WebView webView;
+    private static boolean pageReady = false;
     private static final int SMS_PERMISSION_CODE = 100;
     private boolean historicalSmsLoaded = false;
-    private boolean pageReady = false;
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private static final List<String> pendingSmsQueue = new ArrayList<>();
 
     public static WebView getWebView() {
         return webView;
     }
 
-    public static void queueSms(String body) {
-        synchronized (pendingSmsQueue) {
-            pendingSmsQueue.add(body);
+    // Called by SmsReceiver when SMS arrives — try to process immediately
+    public static void onSmsReceived(String body) {
+        if (pageReady && webView != null) {
+            // Page is ready, process immediately
+            injectSingleSms(body);
+        } else {
+            // Page not ready, queue for later
+            synchronized (pendingSmsQueue) {
+                pendingSmsQueue.add(body);
+            }
         }
+    }
+
+    private static void injectSingleSms(String body) {
+        String b64 = Base64.encodeToString(body.getBytes(), Base64.NO_WRAP);
+        webView.post(() -> webView.evaluateJavascript(
+            "if(typeof onNativeSmsB64==='function'){onNativeSmsB64('" + b64 + "');}",
+            null
+        ));
     }
 
     @Override
@@ -71,49 +83,24 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
                 importHistoricalSms();
-                // Process any pending real-time SMS that arrived while page was loading
                 processPendingSms();
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
 
         webView.loadUrl("https://msrui-lab.github.io/smartmoney/");
-
         requestSmsPermission();
-
-        // Periodically check for pending SMS (every 10 seconds)
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (pageReady) processPendingSms();
-                handler.postDelayed(this, 10000);
-            }
-        }, 10000);
     }
 
-    private void processPendingSms() {
+    private static void processPendingSms() {
         List<String> batch;
         synchronized (pendingSmsQueue) {
             if (pendingSmsQueue.isEmpty()) return;
             batch = new ArrayList<>(pendingSmsQueue);
             pendingSmsQueue.clear();
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
-        boolean first = true;
         for (String body : batch) {
-            if (!first) sb.append(",");
-            first = false;
-            String b64 = Base64.encodeToString(body.getBytes(), Base64.NO_WRAP);
-            sb.append("\"").append(b64).append("\"");
-        }
-        sb.append("]");
-        final String json = sb.toString();
-        if (webView != null) {
-            webView.post(() -> webView.evaluateJavascript(
-                "if(typeof processPendingSmsBatch==='function'){processPendingSmsBatch(" + json + ");}",
-                null
-            ));
+            injectSingleSms(body);
         }
     }
 
@@ -140,9 +127,7 @@ public class MainActivity extends Activity {
                 if (result != PackageManager.PERMISSION_GRANTED) permGranted = false;
             }
             notifyWebViewPermission(permGranted);
-            if (permGranted) {
-                importHistoricalSms();
-            }
+            if (permGranted) importHistoricalSms();
         }
     }
 
@@ -161,7 +146,6 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 23) {
             if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) return;
         }
-
         historicalSmsLoaded = true;
 
         Calendar cal = Calendar.getInstance();
@@ -169,29 +153,21 @@ public class MainActivity extends Activity {
         cal.set(currentYear, Calendar.JANUARY, 1, 0, 0, 0);
         long janFirstMillis = cal.getTimeInMillis();
 
-        // Query for all bank SMS numbers
         String[] bankNums = {"%95588%","%95533%","%95599%","%95566%","%95555%","%95558%","%95559%","%95528%","%95561%","%95568%","%95595%","%95501%","%95577%","%95508%","%95580%"};
-        StringBuilder whereClause = new StringBuilder();
-        whereClause.append("(");
+        StringBuilder whereClause = new StringBuilder("(");
         for (int i = 0; i < bankNums.length; i++) {
             if (i > 0) whereClause.append(" OR ");
             whereClause.append("address LIKE ?");
         }
         whereClause.append(") AND date >= ?");
-
         String[] selectionArgs = new String[bankNums.length + 1];
         System.arraycopy(bankNums, 0, selectionArgs, 0, bankNums.length);
         selectionArgs[bankNums.length] = String.valueOf(janFirstMillis);
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
-
+        StringBuilder sb = new StringBuilder("[");
         try {
             Uri uri = Telephony.Sms.Inbox.CONTENT_URI;
-            String[] projection = {"address", "body", "date"};
-            String sortOrder = "date ASC";
-
-            Cursor cursor = getContentResolver().query(uri, projection, whereClause.toString(), selectionArgs, sortOrder);
+            Cursor cursor = getContentResolver().query(uri, new String[]{"address","body","date"}, whereClause.toString(), selectionArgs, "date ASC");
             if (cursor != null) {
                 boolean first = true;
                 while (cursor.moveToNext()) {
@@ -199,24 +175,18 @@ public class MainActivity extends Activity {
                     if (body != null && !body.isEmpty()) {
                         if (!first) sb.append(",");
                         first = false;
-                        String escaped = body.replace("\\", "\\\\")
-                                            .replace("\"", "\\\"")
-                                            .replace("\n", "\\n")
-                                            .replace("\r", "\\r");
+                        String escaped = body.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n").replace("\r","\\r");
                         sb.append("\"").append(escaped).append("\"");
                     }
                 }
                 cursor.close();
             }
         } catch (Exception e) {}
-
         sb.append("]");
         final String jsonArray = sb.toString();
-
         if (webView != null && sb.length() > 2) {
             webView.postDelayed(() -> webView.evaluateJavascript(
-                "if(typeof onNativeHistoricalSms==='function'){onNativeHistoricalSms(" + jsonArray + ");}",
-                null
+                "if(typeof onNativeHistoricalSms==='function'){onNativeHistoricalSms(" + jsonArray + ");}", null
             ), 2000);
         }
     }
