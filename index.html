@@ -1110,18 +1110,6 @@ let nativeSmsEnabled=false;
 window.onNativeSmsB64=function(b64){
   try{ var decoded=atob(b64); onNativeSmsReceived(decoded); }catch(e){}
 };
-// Poll native SMS queue every 30s (SharedPreferences bridge)
-setInterval(function(){
-  try{
-    if(window.NativeBridge){
-      var json=NativeBridge.pollPendingSms();
-      if(json&&json!=='[]'){
-        var list=JSON.parse(json);
-        list.forEach(function(b){ try{ var d=atob(b); onNativeSmsReceived(d); }catch(e){} });
-      }
-    }
-  }catch(e){}
-},30000);
 // Called by Android/HarmonyOS native layer when SMS permission result is known
 window.onSmsPermissionResult=function(granted){
   nativeSmsEnabled=granted;
@@ -1155,9 +1143,6 @@ window.onNativeSmsReceived=function(smsText){
 // Called by Android native layer to import historical SMS on first install
 window.onNativeHistoricalSms=function(smsList){
   if(!smsList||!Array.isArray(smsList)) return;
-  // One-time import: only run on first install
-  if(localStorage.getItem('sm_hist_imported')) return;
-  localStorage.setItem('sm_hist_imported','1');
   let imported=0,skipped=0;
   smsList.forEach(smsText=>{
     const result=parseBankSms(smsText);

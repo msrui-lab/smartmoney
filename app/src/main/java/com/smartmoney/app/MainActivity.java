@@ -2,14 +2,14 @@ package com.smartmoney.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Telephony;
-import android.util.Base64;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -24,24 +24,8 @@ import java.util.Calendar;
 public class MainActivity extends Activity {
     private WebView webView;
     private static final int SMS_PERMISSION_CODE = 100;
-    private boolean historicalSmsLoaded = false;
-
-    // JS Interface — called from HTML via window.NativeBridge.pollPendingSms()
-    public class NativeBridge {
-        @JavascriptInterface
-        public String pollPendingSms() {
-            String[] bodies = SmsReceiver.drainPendingSms(MainActivity.this);
-            if (bodies == null || bodies.length == 0) return "[]";
-            StringBuilder sb = new StringBuilder("[");
-            for (int i = 0; i < bodies.length; i++) {
-                if (i > 0) sb.append(",");
-                String b64 = Base64.encodeToString(bodies[i].getBytes(), Base64.NO_WRAP);
-                sb.append("\"").append(b64).append("\"");
-            }
-            sb.append("]");
-            return sb.toString();
-        }
-    }
+    private static final String PREFS = "smartmoney_prefs";
+    private static final String KEY_LAST_SYNC = "last_sms_sync";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,13 +51,10 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // Register JS interface for reliable SMS polling
-        webView.addJavascriptInterface(new NativeBridge(), "NativeBridge");
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                importHistoricalSms();
+                importNewSms();
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
@@ -98,31 +79,36 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == SMS_PERMISSION_CODE) {
-            boolean permGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) permGranted = false;
-            }
-            final boolean fg = permGranted;
+            boolean granted = true;
+            for (int r : grantResults) { if (r != PackageManager.PERMISSION_GRANTED) granted = false; }
+            final boolean fg = granted;
             if (webView != null) {
                 webView.post(() -> webView.evaluateJavascript(
                     "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + fg + ");}", null
                 ));
             }
-            if (permGranted) importHistoricalSms();
+            if (granted) importNewSms();
         }
     }
 
-    private void importHistoricalSms() {
-        if (historicalSmsLoaded) return;
+    private void importNewSms() {
         if (Build.VERSION.SDK_INT >= 23) {
             if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) return;
         }
-        historicalSmsLoaded = true;
 
-        Calendar cal = Calendar.getInstance();
-        int currentYear = cal.get(Calendar.YEAR);
-        cal.set(currentYear, Calendar.JANUARY, 1, 0, 0, 0);
-        long janFirstMillis = cal.getTimeInMillis();
+        SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        long lastSync = prefs.getLong(KEY_LAST_SYNC, 0);
+
+        // If never synced, start from Jan 1 this year
+        if (lastSync == 0) {
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.MONTH, Calendar.JANUARY);
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+            cal.set(Calendar.HOUR_OF_DAY, 0);
+            cal.set(Calendar.MINUTE, 0);
+            cal.set(Calendar.SECOND, 0);
+            lastSync = cal.getTimeInMillis();
+        }
 
         String[] bankNums = {"%95588%","%95533%","%95599%","%95566%","%95555%","%95558%","%95559%","%95528%","%95561%","%95568%","%95595%","%95501%","%95577%","%95508%","%95580%"};
         StringBuilder whereClause = new StringBuilder("(");
@@ -130,10 +116,10 @@ public class MainActivity extends Activity {
             if (i > 0) whereClause.append(" OR ");
             whereClause.append("address LIKE ?");
         }
-        whereClause.append(") AND date >= ?");
+        whereClause.append(") AND date > ?");
         String[] selectionArgs = new String[bankNums.length + 1];
         System.arraycopy(bankNums, 0, selectionArgs, 0, bankNums.length);
-        selectionArgs[bankNums.length] = String.valueOf(janFirstMillis);
+        selectionArgs[bankNums.length] = String.valueOf(lastSync);
 
         StringBuilder sb = new StringBuilder("[");
         try {
@@ -153,6 +139,10 @@ public class MainActivity extends Activity {
                 cursor.close();
             }
         } catch (Exception e) {}
+
+        // Save sync timestamp
+        prefs.edit().putLong(KEY_LAST_SYNC, System.currentTimeMillis()).apply();
+
         sb.append("]");
         final String jsonArray = sb.toString();
         if (webView != null && sb.length() > 2) {
