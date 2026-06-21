@@ -1110,13 +1110,18 @@ let nativeSmsEnabled=false;
 window.onNativeSmsB64=function(b64){
   try{ var decoded=atob(b64); onNativeSmsReceived(decoded); }catch(e){}
 };
-// Called by Android to process batched pending real-time SMS (base64 array)
-window.processPendingSmsBatch=function(b64List){
-  if(!b64List||!Array.isArray(b64List)) return;
-  b64List.forEach(function(b64){
-    try{ var decoded=atob(b64); onNativeSmsReceived(decoded); }catch(e){}
-  });
-};
+// Poll native SMS queue every 30s (SharedPreferences bridge)
+setInterval(function(){
+  try{
+    if(window.NativeBridge){
+      var json=NativeBridge.pollPendingSms();
+      if(json&&json!=='[]'){
+        var list=JSON.parse(json);
+        list.forEach(function(b){ try{ var d=atob(b); onNativeSmsReceived(d); }catch(e){} });
+      }
+    }
+  }catch(e){}
+},30000);
 // Called by Android/HarmonyOS native layer when SMS permission result is known
 window.onSmsPermissionResult=function(granted){
   nativeSmsEnabled=granted;

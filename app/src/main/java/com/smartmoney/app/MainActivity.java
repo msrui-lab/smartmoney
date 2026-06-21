@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Telephony;
 import android.util.Base64;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -18,40 +19,28 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.graphics.Color;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Calendar;
 
 public class MainActivity extends Activity {
-    private static WebView webView;
-    private static boolean pageReady = false;
+    private WebView webView;
     private static final int SMS_PERMISSION_CODE = 100;
     private boolean historicalSmsLoaded = false;
-    private static final List<String> pendingSmsQueue = new ArrayList<>();
 
-    public static WebView getWebView() {
-        return webView;
-    }
-
-    // Called by SmsReceiver when SMS arrives — try to process immediately
-    public static void onSmsReceived(String body) {
-        if (pageReady && webView != null) {
-            // Page is ready, process immediately
-            injectSingleSms(body);
-        } else {
-            // Page not ready, queue for later
-            synchronized (pendingSmsQueue) {
-                pendingSmsQueue.add(body);
+    // JS Interface — called from HTML via window.NativeBridge.pollPendingSms()
+    public class NativeBridge {
+        @JavascriptInterface
+        public String pollPendingSms() {
+            String[] bodies = SmsReceiver.drainPendingSms(MainActivity.this);
+            if (bodies == null || bodies.length == 0) return "[]";
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < bodies.length; i++) {
+                if (i > 0) sb.append(",");
+                String b64 = Base64.encodeToString(bodies[i].getBytes(), Base64.NO_WRAP);
+                sb.append("\"").append(b64).append("\"");
             }
+            sb.append("]");
+            return sb.toString();
         }
-    }
-
-    private static void injectSingleSms(String body) {
-        String b64 = Base64.encodeToString(body.getBytes(), Base64.NO_WRAP);
-        webView.post(() -> webView.evaluateJavascript(
-            "if(typeof onNativeSmsB64==='function'){onNativeSmsB64('" + b64 + "');}",
-            null
-        ));
     }
 
     @Override
@@ -78,30 +67,19 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
+        // Register JS interface for reliable SMS polling
+        webView.addJavascriptInterface(new NativeBridge(), "NativeBridge");
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                pageReady = true;
                 importHistoricalSms();
-                processPendingSms();
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
 
         webView.loadUrl("https://msrui-lab.github.io/smartmoney/");
         requestSmsPermission();
-    }
-
-    private static void processPendingSms() {
-        List<String> batch;
-        synchronized (pendingSmsQueue) {
-            if (pendingSmsQueue.isEmpty()) return;
-            batch = new ArrayList<>(pendingSmsQueue);
-            pendingSmsQueue.clear();
-        }
-        for (String body : batch) {
-            injectSingleSms(body);
-        }
     }
 
     private void requestSmsPermission() {
@@ -112,8 +90,6 @@ public class MainActivity extends Activity {
                     new String[]{Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS},
                     SMS_PERMISSION_CODE
                 );
-            } else {
-                notifyWebViewPermission(true);
             }
         }
     }
@@ -126,18 +102,13 @@ public class MainActivity extends Activity {
             for (int result : grantResults) {
                 if (result != PackageManager.PERMISSION_GRANTED) permGranted = false;
             }
-            notifyWebViewPermission(permGranted);
+            final boolean fg = permGranted;
+            if (webView != null) {
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + fg + ");}", null
+                ));
+            }
             if (permGranted) importHistoricalSms();
-        }
-    }
-
-    private void notifyWebViewPermission(boolean granted) {
-        final boolean finalGranted = granted;
-        if (webView != null) {
-            webView.post(() -> webView.evaluateJavascript(
-                "if(typeof onSmsPermissionResult==='function'){onSmsPermissionResult(" + finalGranted + ");}",
-                null
-            ));
         }
     }
 
