@@ -7,7 +7,10 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Telephony;
+import android.util.Base64;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -17,15 +20,26 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.graphics.Color;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Calendar;
 
 public class MainActivity extends Activity {
     private static WebView webView;
     private static final int SMS_PERMISSION_CODE = 100;
     private boolean historicalSmsLoaded = false;
+    private boolean pageReady = false;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private static final List<String> pendingSmsQueue = new ArrayList<>();
 
     public static WebView getWebView() {
         return webView;
+    }
+
+    public static void queueSms(String body) {
+        synchronized (pendingSmsQueue) {
+            pendingSmsQueue.add(body);
+        }
     }
 
     @Override
@@ -55,15 +69,52 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
+                pageReady = true;
                 importHistoricalSms();
+                // Process any pending real-time SMS that arrived while page was loading
+                processPendingSms();
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
 
         webView.loadUrl("https://msrui-lab.github.io/smartmoney/");
 
-        // Request SMS permission on first launch
         requestSmsPermission();
+
+        // Periodically check for pending SMS (every 10 seconds)
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (pageReady) processPendingSms();
+                handler.postDelayed(this, 10000);
+            }
+        }, 10000);
+    }
+
+    private void processPendingSms() {
+        List<String> batch;
+        synchronized (pendingSmsQueue) {
+            if (pendingSmsQueue.isEmpty()) return;
+            batch = new ArrayList<>(pendingSmsQueue);
+            pendingSmsQueue.clear();
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        boolean first = true;
+        for (String body : batch) {
+            if (!first) sb.append(",");
+            first = false;
+            String b64 = Base64.encodeToString(body.getBytes(), Base64.NO_WRAP);
+            sb.append("\"").append(b64).append("\"");
+        }
+        sb.append("]");
+        final String json = sb.toString();
+        if (webView != null) {
+            webView.post(() -> webView.evaluateJavascript(
+                "if(typeof processPendingSmsBatch==='function'){processPendingSmsBatch(" + json + ");}",
+                null
+            ));
+        }
     }
 
     private void requestSmsPermission() {
@@ -75,7 +126,6 @@ public class MainActivity extends Activity {
                     SMS_PERMISSION_CODE
                 );
             } else {
-                // Already granted
                 notifyWebViewPermission(true);
             }
         }
@@ -114,11 +164,24 @@ public class MainActivity extends Activity {
 
         historicalSmsLoaded = true;
 
-        // Calculate timestamp for January 1 of current year
         Calendar cal = Calendar.getInstance();
         int currentYear = cal.get(Calendar.YEAR);
         cal.set(currentYear, Calendar.JANUARY, 1, 0, 0, 0);
         long janFirstMillis = cal.getTimeInMillis();
+
+        // Query for all bank SMS numbers
+        String[] bankNums = {"%95588%","%95533%","%95599%","%95566%","%95555%","%95558%","%95559%","%95528%","%95561%","%95568%","%95595%","%95501%","%95577%","%95508%","%95580%"};
+        StringBuilder whereClause = new StringBuilder();
+        whereClause.append("(");
+        for (int i = 0; i < bankNums.length; i++) {
+            if (i > 0) whereClause.append(" OR ");
+            whereClause.append("address LIKE ?");
+        }
+        whereClause.append(") AND date >= ?");
+
+        String[] selectionArgs = new String[bankNums.length + 1];
+        System.arraycopy(bankNums, 0, selectionArgs, 0, bankNums.length);
+        selectionArgs[bankNums.length] = String.valueOf(janFirstMillis);
 
         StringBuilder sb = new StringBuilder();
         sb.append("[");
@@ -126,11 +189,9 @@ public class MainActivity extends Activity {
         try {
             Uri uri = Telephony.Sms.Inbox.CONTENT_URI;
             String[] projection = {"address", "body", "date"};
-            String selection = "address LIKE ? AND date >= ?";
-            String[] selectionArgs = {"%95588%", String.valueOf(janFirstMillis)};
             String sortOrder = "date ASC";
 
-            Cursor cursor = getContentResolver().query(uri, projection, selection, selectionArgs, sortOrder);
+            Cursor cursor = getContentResolver().query(uri, projection, whereClause.toString(), selectionArgs, sortOrder);
             if (cursor != null) {
                 boolean first = true;
                 while (cursor.moveToNext()) {
@@ -138,7 +199,6 @@ public class MainActivity extends Activity {
                     if (body != null && !body.isEmpty()) {
                         if (!first) sb.append(",");
                         first = false;
-                        // Escape for JSON
                         String escaped = body.replace("\\", "\\\\")
                                             .replace("\"", "\\\"")
                                             .replace("\n", "\\n")
@@ -148,20 +208,16 @@ public class MainActivity extends Activity {
                 }
                 cursor.close();
             }
-        } catch (Exception e) {
-            // SMS provider might not be available
-        }
+        } catch (Exception e) {}
 
         sb.append("]");
         final String jsonArray = sb.toString();
 
         if (webView != null && sb.length() > 2) {
-            webView.postDelayed(() -> {
-                webView.evaluateJavascript(
-                    "if(typeof onNativeHistoricalSms==='function'){onNativeHistoricalSms(" + jsonArray + ");}",
-                    null
-                );
-            }, 2000); // Wait 2s for page JS to initialize
+            webView.postDelayed(() -> webView.evaluateJavascript(
+                "if(typeof onNativeHistoricalSms==='function'){onNativeHistoricalSms(" + jsonArray + ");}",
+                null
+            ), 2000);
         }
     }
 
