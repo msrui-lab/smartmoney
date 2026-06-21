@@ -120,7 +120,7 @@ textarea{resize:none;min-height:80px}
 
 .profile-section{margin-bottom:20px}
 .profile-section h3{font-size:0.82rem;color:var(--text2);margin-bottom:10px;padding-left:4px}
-.setting-item{display:flex;justify-content:space-between;align-items:center;padding:14px;background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:var(--radius-sm);margin-bottom:6px;box-shadow:var(--shadow);cursor:pointer;border:1px solid var(--border)}
+.setting-item{display:flex;justify-content:space-between;align-items:center;padding:14px;background:rgba(255,255,255,0.6);border-radius:var(--radius-sm);margin-bottom:6px;cursor:pointer;border:1px solid var(--border)}
 .setting-item .set-arrow{color:var(--text3);font-size:0.9rem}
 
 .month-selector{display:inline-flex;align-items:center;gap:0;margin:0 auto 14px;background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:28px;padding:4px;border:1px solid var(--border);box-shadow:var(--shadow)}
@@ -957,9 +957,9 @@ function renderProfile(){
 
   <div class="profile-section">
     <h3>🏷️ 分类管理</h3>
-    <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden;box-shadow:var(--shadow)">
+    <div style="background:rgba(255,255,255,0.5);border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border)">
     ${DATA.categories.map(c=>`
-      <div class="setting-item" style="box-shadow:none;border-bottom:1px solid var(--border);margin-bottom:0;border-radius:0" onclick="openCategoryModal('${c.id}')">
+      <div class="setting-item" style="background:transparent;border-bottom:1px solid rgba(0,0,0,0.05);margin-bottom:0;border-radius:0;border-left:none;border-right:none;border-top:none" onclick="openCategoryModal('${c.id}')">
         <div><span style="font-size:1.1rem;margin-right:6px">${c.icon}</span>${c.name} <span style="font-size:0.7rem;color:var(--text3)">${c.type==='expense'?'支出':'收入'}</span></div><span class="set-arrow"> ›</span>
       </div>`).join('')}
     </div>
